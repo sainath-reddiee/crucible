@@ -30,6 +30,7 @@ export class CruciblePipelineOrchestrator {
 
   /**
    * Full nightly pipeline: Capture -> Detect -> Refine -> Critic -> Anonymize -> Governance
+   * Now includes Suggester Agent for real-time skill deployment and user targeting
    */
   public async runNightlyPipeline(): Promise<Skill[]> {
     console.log('[CRUCIBLE] Starting nightly pipeline...');
@@ -57,14 +58,23 @@ export class CruciblePipelineOrchestrator {
       console.log(`[CRUCIBLE] Agent 5 (Governance) classifying and routing...`);
       const classification = await this.governance.classifyAndRoute(anonymizedSkill, confidenceScore, clearanceLevel);
 
+      // Step 6: Suggester - Deploy skill to users where they are working
+      console.log(`[CRUCIBLE] Agent 6 (Suggester) deploying skill to user context...`);
+      const deploymentResult = await this.suggester.deploySkillToContext(
+        anonymizedSkill,
+        confidenceScore,
+        clearanceLevel,
+        classification
+      );
+
       // Auto-publish if auto-cleared and tier 1
       if (clearanceLevel === 'auto_cleared' && classification.tier === 1) {
         anonymizedSkill.metadata.maturity = 'published';
         await globalSnowflakeDB.upsertSkill(anonymizedSkill);
         publishedSkills.push(anonymizedSkill);
-        console.log(`[CRUCIBLE] Skill '${anonymizedSkill.metadata.slug}' auto-published.`);
+        console.log(`[CRUCIBLE] Skill '${anonymizedSkill.metadata.slug}' auto-published and deployed to ${deploymentResult.usersTargeted} users.`);
       } else {
-        console.log(`[CRUCIBLE] Skill '${anonymizedSkill.metadata.slug}' routed to human reviewers.`);
+        console.log(`[CRUCIBLE] Skill '${anonymizedSkill.metadata.slug}' routed to human reviewers. Deployment to users: ${deploymentResult.usersTargeted}.`);
       }
     }
 

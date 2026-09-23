@@ -1,11 +1,20 @@
 /**
  * Agent 6: The Suggester (Real-time Colleague)
  * Watches engineer context in real time and surfaces relevant skills proactively.
+ * Also handles the "throw to users where they are working" deployment pipeline.
  */
 
-import { Skill, SkillSuggestion, UserContext } from '@crucible/core';
+import { Skill, SkillSuggestion, UserContext, GovernanceClassification } from '@crucible/core';
 import { SnowflakeDatabase } from '@crucible/core';
 import { ExplainableReasoningTreeNavigator } from '@crucible/core';
+
+export interface SuggesterDeploymentResult {
+  skillId: string;
+  usersTargeted: number;
+  deliveryChannels: string[];
+  status: 'deployed' | 'queued' | 'blocked' | 'rejected';
+  reason: string;
+}
 
 export class SuggesterAgent {
   private db: SnowflakeDatabase;
@@ -167,6 +176,76 @@ export class SuggesterAgent {
 
   public unsilenceSession(engineerId: string): void {
     this.silencedSessions.delete(engineerId);
+  }
+
+  /**
+   * Deploy a newly-created skill to the users where they are working.
+   * This is the "throw to users where they are working" pipeline:
+   * - Matches skill archetype against active user contexts
+   * - Routes via the delivery channels each user has configured (CLI, MCP, IDE banner, dashboard)
+   * - Respects tier & clearance gating
+   */
+  public async deploySkillToContext(
+    skill: Skill,
+    confidenceScore: number,
+    clearanceLevel: string,
+    classification: GovernanceClassification
+  ): Promise<SuggesterDeploymentResult> {
+    const trace: string[] = [];
+    const skillArchetype = skill.metadata.archetype;
+
+    // Gate 1: Clearance must be sufficient
+    if (clearanceLevel !== 'auto_cleared' && classification.tier > 2) {
+      return {
+        skillId: skill.metadata.id,
+        usersTargeted: 0,
+        deliveryChannels: [],
+        status: 'blocked',
+        reason: `Clearance ${clearanceLevel} insufficient for tier ${classification.tier} deployment.`
+      };
+    }
+
+    // Gate 2: Find active users whose context matches the skill archetype
+    const activeUsers = await this.db.listActiveUsers();
+    const matchingUsers = activeUsers.filter((u: any) => {
+      const ctx = u.context;
+      if (!ctx) return false;
+      const ctxText = `${ctx.currentBranch || ''} ${ctx.activeTaskDescription || ''} ${(ctx.openFiles || []).join(' ')}`.toLowerCase();
+      return ctxText.includes(skillArchetype.toLowerCase().split(' ')[0]) ||
+             skill.metadata.techStack?.some((t: string) => ctxText.includes(t.toLowerCase()));
+    });
+
+    if (matchingUsers.length === 0) {
+      // No active match — queue for ambient delivery
+      await this.db.queueSkillForDelivery(skill, 'ambient');
+      return {
+        skillId: skill.metadata.id,
+        usersTargeted: 0,
+        deliveryChannels: ['ambient_queue'],
+        status: 'queued',
+        reason: `No active context match for archetype '${skillArchetype}'. Queued for ambient delivery.`
+      };
+    }
+
+    // Deliver via each user's configured channels
+    const deliveryChannels = new Set<string>();
+    for (const user of matchingUsers) {
+      const channels = user.deliveryChannels || ['cli'];
+      for (const ch of channels) {
+        deliveryChannels.add(ch);
+        await this.db.deliverSkillToUser(user.engineerId, skill, ch);
+      }
+    }
+
+    trace.push(`Deployed skill '${skill.metadata.slug}' to ${matchingUsers.length} user(s) via ${Array.from(deliveryChannels).join(', ')}.`);
+
+    return {
+      skillId: skill.metadata.id,
+      usersTargeted: matchingUsers.length,
+      deliveryChannels: Array.from(deliveryChannels),
+      status: 'deployed',
+      reason: trace[0]
+    };
   }
 
   private hashContext(context: UserContext): string {

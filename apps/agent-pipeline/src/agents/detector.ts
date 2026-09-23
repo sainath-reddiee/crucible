@@ -6,12 +6,17 @@
 
 import { CapturedEvent, SkillSeed } from '@crucible/core';
 import { SnowflakeDatabase } from '@crucible/core';
+import Anthropic from '@anthropic-ai/sdk';
 
 export class DetectorAgent {
   private db: SnowflakeDatabase;
+  private anthropic?: Anthropic;
 
   constructor(db: SnowflakeDatabase) {
     this.db = db;
+    if (process.env.ANTHROPIC_API_KEY) {
+      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    }
   }
 
   /**
@@ -106,14 +111,41 @@ export class DetectorAgent {
   }
 
   private async inferenceIntent(event: CapturedEvent): Promise<string> {
-    // Use lightweight model (e.g., Mistral, Llama) for intent inference
+    if (this.anthropic) {
+      try {
+        const response = await this.anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 150,
+          system: [
+            {
+              type: 'text',
+              text: 'You are the Detector sub-agent in Crucible. Write a single-sentence intent summary for this engineering event.',
+              cache_control: { type: 'ephemeral' }
+            }
+          ],
+          messages: [
+            {
+              role: 'user',
+              content: `Event Type: ${event.eventType}\nTitle: ${event.title}\nSnippet: ${event.rawSnippet || 'None'}`
+            }
+          ]
+        });
+        const textBlock = response.content.find(c => c.type === 'text');
+        if (textBlock && 'text' in textBlock) {
+          return textBlock.text.trim();
+        }
+      } catch (err) {
+        console.warn('[DETECTOR] Claude API inference failed, falling back to mock:', err);
+      }
+    }
+
+    // Fallback to lightweight LLM / rule-based simulation
     const lightModelPrompts = [
       'Extract intent: ' + event.title,
       'What is being done here? ' + event.summary,
       'Purpose of this operation: ' + event.eventType
     ];
 
-    // Simulate lightweight model inference
     return this.mockLightweightInference(lightModelPrompts);
   }
 

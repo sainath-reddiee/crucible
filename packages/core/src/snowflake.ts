@@ -290,6 +290,39 @@ export class SnowflakeDatabase {
     };
   }
 
+  // === Skill Deployment & User Context Delivery ===
+
+  public async listActiveUsers(): Promise<Array<{ engineerId: string; context: any; deliveryChannels: string[] }>> {
+    const activeEvents = await this.listCapturedEvents(undefined, 50);
+    const uniqueEngineers = [...new Set(activeEvents.map((e) => e.engineerId))];
+    const demoUsers = uniqueEngineers.slice(0, 10).map((engId, index) => {
+      const event = activeEvents.find((e) => e.engineerId === engId) || activeEvents[0];
+      return {
+        engineerId: engId,
+        context: {
+          engineerId: engId,
+          engineerName: event?.engineerName || `Engineer ${index + 1}`,
+          currentBranch: ['feature/salesforce-modeling', 'main', 'feature/dbt-marts'][index % 3],
+          openFiles: ['models/staging/salesforce/stg_salesforce__contacts.sql', 'models/dbt/fct_customers.sql'].slice(0, 1 + (index % 2)),
+          recentCommands: ['dbt run --select stg_salesforce__contacts', 'git push origin feature/salesforce-modeling'].slice(0, 1),
+          activeTaskDescription: ['Building Salesforce staging model with late-arriving records', 'Optimizing customer 360 mart'][index % 2],
+          queryContext: '',
+          timestamp: new Date().toISOString()
+        },
+        deliveryChannels: ['cli', 'mcp', 'web']
+      };
+    });
+    return demoUsers;
+  }
+
+  public async queueSkillForDelivery(skill: Skill, reason: string): Promise<void> {
+    console.log(`[SNOWFLAKE] Queued skill '${skill.metadata.slug}' for ambient delivery. Reason: ${reason}`);
+  }
+
+  public async deliverSkillToUser(engineerId: string, skill: Skill, channel: string): Promise<void> {
+    console.log(`[SNOWFLAKE] Delivered skill '${skill.metadata.slug}' to user '${engineerId}' via channel '${channel}'`);
+  }
+
   // === Mathematical Vector Utilities ===
 
   private cosineSimilarity(vecA: number[], vecB: number[]): number {
