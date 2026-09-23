@@ -104,28 +104,64 @@ export class AnonymizerAgent {
   }
 
   private calculateTransferConfidence(skill: Skill, scrubbedEntities: Array<{ original: string; replacement: string; entityType: string }>): number {
-    let score = 85; // Base confidence
+    // Lightweight confidence scoring - rule-based
+    let score = 85; // Base confidence score
 
-    // Penalize skills that originally had many specific identifiers
+    // Penalize skills with many sensitive identifiers
     if (skill.metadata.citations.length > 3) {
       score -= 15;
     }
 
-    // If no scrubbing needed, boost score
+    // Boost if no sensitive data was present
     if (scrubbedEntities.length === 0) {
       score += 10;
+    } else {
+      // Higher penalty for sensitive data types
+      const sensitiveEntityCount = scrubbedEntities.filter(e =>
+        e.entityType === 'client_name' || e.entityType === 'table_name'
+      ).length;
+      score -= sensitiveEntityCount * 5;
     }
 
-    // Check for sensitivity-related risks
-    if (skill.metadata.sensitivity === 'financial' || skill.metadata.sensitivity === 'pii') {
-      score -= 20;
-    }
+    // Adjust based on sensitivity level
+    const sensitivityMultiplier = {
+      'generic_technical': 1.0,
+      'financial': 0.6,
+      'pii': 0.4,
+      'healthcare_phi': 0.3,
+      'confidential_ip': 0.5
+    };
 
-    // Boost for tier 1 skills (lower risk)
+    const sensitivityFactor = sensitivityMultiplier[skill.metadata.sensitivity] || 1.0;
+    score *= sensitivityFactor;
+
+    // Boost for low-risk tier 1 skills
     if (skill.metadata.tier === 1) {
       score += 5;
     }
 
-    return Math.max(0, Math.min(100, score));
+    // Ensure score stays within bounds
+    return Math.max(0, Math.min(100, Math.round(score)));
+  }
+
+  // Add lightweight similarity detection for anonymization patterns
+  private detectSensitivePatterns(skillMarkdown: string): Array<{ type: string; count: number }> {
+    const patterns = [
+      { regex: /Client-[A-Z]-\w+/g, type: 'client_name' },
+      { regex: /(RAW\.|analytics_staging\.)?[A-Za-z_]+/g, type: 'table_name' },
+      { regex: /\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}/g, type: 'timestamp' },
+      { regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, type: 'email' },
+      { regex: /\b\d{3}-\d{2}-\d{4}\b/g, type: 'ssn' }
+    ];
+
+    const detected: Array<{ type: string; count: number }> = [];
+    for (const pattern of patterns) {
+      const matches = skillMarkdown.match(pattern.regex) || [];
+      if (matches.length > 0) {
+        detected.push({ type: pattern.type, count: matches.length });
+      }
+    }
+
+    return detected;
   }
 }

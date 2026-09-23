@@ -68,17 +68,83 @@ export class RefinerAgent {
   }
 
   private buildCanonicalNarrative(events: CapturedEvent[]): string {
-    const patterns = events.map(e => {
-      const snippet = e.rawSnippet || '';
-      if (snippet.includes('to_timestamp_ntz') && snippet.includes('is_deleted')) {
-        return 'timestamp conversion & soft-delete filtering';
+    // Use lightweight pattern extraction instead of Claude
+    const patterns = events.map(e => this.extractPattern(e));
+
+    // Use rule-based narrative construction
+    return this.constructNarrativeFromPatterns(patterns);
+  }
+
+  private extractPattern(event: CapturedEvent): string {
+    const snippet = event.rawSnippet || '';
+    const title = event.title.toLowerCase();
+
+    // Rule-based pattern extraction
+    if (snippet.includes('to_timestamp_ntz') && snippet.includes('is_deleted')) {
+      return 'timestamp conversion & soft-delete filtering';
+    }
+    if (title.includes('incremental') || title.includes('merge')) {
+      return 'incremental dbt staging';
+    }
+    if (title.includes('staging') && title.includes('salesforce')) {
+      return 'salesforce to snowflake staging pipeline';
+    }
+    if (title.includes('streaming') || title.includes('snowpipe')) {
+      return 'real-time streaming ingestion';
+    }
+    if (title.includes('mask') || title.includes('phi') || title.includes('pii')) {
+      return 'data masking & compliance';
+    }
+
+    // Lightweight semantic grouping
+    return this.groupIntoSemanticCategory(event);
+  }
+
+  private groupIntoSemanticCategory(event: CapturedEvent): string {
+    // Lightweight categorization based on event attributes
+    const categoryMap: Record<string, string> = {
+      'salesforce': 'Salesforce data integration',
+      'snowflake': 'Snowflake warehouse operations',
+      'dbt': 'Data transformation workflows',
+      'streaming': 'Real-time data pipelines',
+      'masking': 'Data privacy and compliance',
+      'api': 'API integration and transformations'
+    };
+
+    for (const [keyword, category] of Object.entries(categoryMap)) {
+      if (event.title.toLowerCase().includes(keyword) ||
+          (event.summary && event.summary.toLowerCase().includes(keyword))) {
+        return category;
       }
-      if (snippet.includes('incremental') || snippet.includes('merge')) {
-        return 'incremental dbt staging';
+    }
+
+    return 'Standard data processing operation';
+  }
+
+  private constructNarrativeFromPatterns(patterns: string[]): string {
+    // Rule-based narrative construction
+    const patternCounts = this.countPatternFrequency(patterns);
+
+    let narrative = 'This canonical pattern involves:';
+
+    for (const [pattern, count] of Object.entries(patternCounts)) {
+      if (count >= 2) {
+        narrative += ` ${count} occurrences of ${pattern},`;
+      } else {
+        narrative += ` ${pattern},`;
       }
-      return 'Snowflake staging model';
-    });
-    return `The pattern involves: ${patterns.join(', ')}`;
+    }
+
+    // Clean up and return
+    return narrative.replace(/,\s*$/, '') + '.';
+  }
+
+  private countPatternFrequency(patterns: string[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const pattern of patterns) {
+      counts[pattern] = (counts[pattern] || 0) + 1;
+    }
+    return counts;
   }
 
   private extractCommonTechStack(events: CapturedEvent[]): string[] {

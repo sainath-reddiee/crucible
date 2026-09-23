@@ -57,11 +57,91 @@ export class GovernanceAgent {
   }
 
   private determineBlastRadius(skill: Skill): 'read_only' | 'staging_layer' | 'prod_warehouse' | 'multi_system' {
-    const text = `${skill.metadata.slug} ${skill.metadata.name} ${skill.skillMarkdown}`.toLowerCase();
-    if (text.includes('streaming') || text.includes('snowpipe') || text.includes('task')) return 'prod_warehouse';
-    if (text.includes('staging') || text.includes('incremental')) return 'staging_layer';
-    if (text.includes('diagnose') || text.includes('audit') || text.includes('query')) return 'read_only';
+    // Lightweight blast radius determination - rule-based
+    const slug = skill.metadata.slug.toLowerCase();
+    const name = skill.metadata.name.toLowerCase();
+    const markdown = skill.skillMarkdown.toLowerCase();
+
+    // Use simplified patterns for blast radius classification
+    if (this.isProductionSystem(slug, name, markdown)) {
+      return 'prod_warehouse';
+    }
+    if (this.isStagingSystem(slug, name, markdown)) {
+      return 'staging_layer';
+    }
+    if (this.isReadOnlySystem(slug, name, markdown)) {
+      return 'read_only';
+    }
+
     return 'multi_system';
+  }
+
+  private isProductionSystem(slug: string, name: string, markdown: string): boolean {
+    // Production system indicators
+    const productionIndicators = [
+      'streaming', 'snowpipe', 'tasks', 'pipelines', 'warehouse',
+      'production', 'prod', 'critical', 'mission-critical'
+    ];
+
+    return productionIndicators.some(indicator =>
+      slug.includes(indicator) || name.includes(indicator) || markdown.includes(indicator)
+    );
+  }
+
+  private isStagingSystem(slug: string, name: string, markdown: string): boolean {
+    // Staging system indicators
+    const stagingIndicators = [
+      'staging', 'stage', 'incremental', 'temp', 'sandbox', 'development'
+    ];
+
+    return stagingIndicators.some(indicator =>
+      slug.includes(indicator) || name.includes(indicator) || markdown.includes(indicator)
+    );
+  }
+
+  private isReadOnlySystem(slug: string, name: string, markdown: string): boolean {
+    // Read-only system indicators
+    const readOnlyIndicators = [
+      'diagnose', 'audit', 'query', 'read', 'view', 'report',
+      'analysis', 'insight', 'monitoring'
+    ];
+
+    return readOnlyIndicators.some(indicator =>
+      slug.includes(indicator) || name.includes(indicator) || markdown.includes(indicator)
+    );
+  }
+
+  // Add lightweight risk scoring for governance decisions
+  private calculateRiskScore(skill: Skill): number {
+    // Lightweight risk calculation - no LLM needed
+    let score = 50; // Base risk score
+
+    // Adjust based on tier
+    const tierMultipliers = {
+      1: 0.5, // Low risk
+      2: 1.0, // Medium risk
+      3: 1.5, // High risk
+      4: 2.0  // Critical risk
+    };
+
+    score *= tierMultipliers[skill.metadata.tier] || 1.0;
+
+    // Adjust based on sensitivity
+    const sensitivityAdjustments = {
+      'generic_technical': 0,
+      'financial': 30,
+      'pii': 40,
+      'healthcare_phi': 50,
+      'confidential_ip': 35
+    };
+
+    score += (sensitivityAdjustments[skill.metadata.sensitivity] || 0);
+
+    // Adjust based on blast radius
+    if (skill.metadata.blastRadius === 'multi_system') score += 20;
+    else if (skill.metadata.blastRadius === 'prod_warehouse') score += 15;
+
+    return Math.min(100, Math.max(0, score));
   }
 
   private determineSensitivity(skill: Skill): 'generic_technical' | 'financial' | 'pii' | 'healthcare_phi' | 'confidential_ip' {
