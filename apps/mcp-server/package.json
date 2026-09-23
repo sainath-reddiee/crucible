@@ -1,0 +1,17 @@
+{
+  "name": "@crucible/mcp-server",
+  "version": "1.0.0",
+  "main": "dist/mcp-server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/mcp-server.js"
+  },
+  "dependencies": {
+    "@crucible/core": "*",
+    "@anthropic-ai/sdk": "^0.38.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.7"
+  }
+}

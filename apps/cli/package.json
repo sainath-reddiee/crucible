@@ -1,0 +1,8 @@
+{
+  "name": "@crucible/cli",
+  "version": "1.0.0",
+  "main": "index.py",
+  "bin": {
+    "crucible": "./index.py"
+  }
+}

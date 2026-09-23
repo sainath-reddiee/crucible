@@ -1,0 +1,27 @@
+{
+  "name": "crucible-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Crucible - Agentic Skill Factory for Consulting Firms",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "start:web": "npm run dev --workspace=apps/web-dashboard",
+    "start:mcp": "npm run start --workspace=apps/mcp-server",
+    "pipeline:nightly": "node apps/agent-pipeline/dist/orchestrator.js",
+    "demo": "node scripts/demo-walkthrough.js"
+  },
+  "keywords": [
+    "crucible",
+    "anthropic",
+    "agent-sdk",
+    "mcp",
+    "snowflake",
+    "skills"
+  ],
+  "author": "Crucible Team",
+  "license": "MIT"
+}
